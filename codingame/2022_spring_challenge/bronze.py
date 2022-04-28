@@ -217,7 +217,7 @@ while True:
                 action_scores[Action(ActionType.MOVE, target_id=monster.id, x=x, y=y)] += 90 * farm_love[i] - normalized_hero_distance * 25 + farming_bonus - attack_penalty - far_from_base_penalty - on_it_penalty
             # Control faraway monsters to attack
             if state.timestep > 100 and distance_from_base(monster)>4900 and  mana > 20 and distance_fn(monster, hero) < CONTROL_RANGE and monster.shield_life==0 and monster.threat_for!=2 and len(actions_for_entity[monster.id])==0:
-                health_bonus = monster.health - 24
+                health_bonus = monster.health*2 - 40
                 action_scores[Action(ActionType.CONTROL_TO_OPP, target_id=monster.id)] = 40 + min(mana-40, 35) + health_bonus
             # Wind monsters to attack
             if monster.shield_life==0 and BASE_RADIUS < distance_from_opp_base(monster) < BASE_RADIUS+2200 and distance_fn(hero, monster) < WIND_RANGE and mana > 20:
@@ -238,7 +238,6 @@ while True:
                 # distance_bonus = 50 if 
                 shield_penalty = monster.shield_life * 25
                 action_scores[Action(ActionType.SHIELD, target_id=monster.id)] += hp_bonus - shield_penalty - time_penalty + 10
-
 
         # Go fuck with opponent
         if state.timestep > 35:
