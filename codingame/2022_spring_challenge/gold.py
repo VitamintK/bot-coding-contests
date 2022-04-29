@@ -55,6 +55,7 @@ home_love = [1, 1, 1]
 farm_love = [0.2, 0.3, 1]
 extroversion = [0, 0.1, 1]
 wind_love = [0.6, 0.4, 0.1]
+shield_self_love = [1,0,0]
 
 def distance_from_position(entity, position):
     return math.dist((entity.x, entity.y), position)
@@ -86,6 +87,10 @@ def target_towards(cur_position, target_position, max_distance):
     dx/=mag
     dy/=mag
     return int(cx+dx*max_distance), int(cy+dy*max_distance)
+
+def within_bounds(position):
+    x,y = position
+    return 0<=x<W and 0<=y<H
 
 Entity = namedtuple('Entity', ['id', 'type', 'x', 'y', 'shield_life', 'is_controlled', 'health',
 'vx', 'vy', 'near_base', 'threat_for'])
@@ -174,6 +179,7 @@ while True:
         if hero.is_controlled and distance_from_base(hero) < 5000:
             state.should_shield_base = True
         action_scores = defaultdict(float)
+        action_metadata = defaultdict(lambda: {'targets': []})
         action_scores[Action(ActionType.WAIT)] = 0
         for opp_hero in opp_heroes:
             # make opponent go away
@@ -181,7 +187,7 @@ while True:
             #     action_scores[Action(ActionType.WIND_TO_OPP)] += 50
             # shield self
             if state.should_shield_base and distance_from_base(hero) < 5500 and distance_fn(opp_hero, hero) < CONTROL_RANGE and mana > 10 and hero.shield_life == 0:
-                action_scores[Action(ActionType.SHIELD, target_id=hero.id)] = 200
+                action_scores[Action(ActionType.SHIELD, target_id=hero.id)] = 200 * shield_self_love[i]
             # disrupt enemies with Wind
             if distance_fn(opp_hero, hero) < WIND_RANGE and opp_hero.shield_life == 0 and mana > 10:
                 for monster in monsters:
@@ -233,7 +239,9 @@ while True:
                 time_penalty = 100 if state.timestep < 80 else -20
                 redirect_bonus = 20 if monster.threat_for==0 else -10
                 hp_bonus = monster.health * 7
-                action_scores[Action(ActionType.WIND_MONSTER_INTO_BASE)] += min((mana-10)*3, 45) - time_penalty + hp_bonus - 25
+                action = Action(ActionType.WIND_MONSTER_INTO_BASE)
+                action_metadata[action]['targets'].append(monster)
+                action_scores[action] += min((mana-10)*3, 45) - time_penalty + hp_bonus - 25
             # Wind monster to score a guaranteed point
             if monster.shield_life==0 and distance_from_opp_base(monster) < WIND_EFFECT + SCORE_RADIUS and distance_fn(hero, monster) < WIND_RANGE and mana >= 10:
                 dx = other_x - monster.x
@@ -277,7 +285,7 @@ while True:
             if mana < 20:
                 home_love[2] = 0.5
             else:
-                home_love[2] = 8
+                home_love[2] = 6
         # Go home
         for home in homes[i]:
             x,y = target_towards((hero.x, hero.y), home, 799)
@@ -309,9 +317,9 @@ while True:
                 # do get close to monster so I can spell it
                 monster_distance = distance_from_position(monster, (action.x, action.y))
                 if monster_distance <= WIND_RANGE:
-                    action_scores[action] += 5
+                    action_scores[action] += 7
                 if monster_distance <= CONTROL_RANGE:
-                    action_scores[action] += 5
+                    action_scores[action] += 7
                 if monster_distance <= DAMAGE_RANGE:
                     d = distance_from_base(monster)
                     # don't harm monster if it can get us a point
@@ -345,7 +353,17 @@ while True:
             print(f"SPELL WIND {other_x} {other_y} {score}")
             mana -= 10
         elif action.type == ActionType.WIND_MONSTER_INTO_BASE:
-            print(f"SPELL WIND {other_x} {other_y} {score}")
+            for target in action_metadata[action]['targets']:
+                dy, dx = other_y - target.y, other_x - target.x
+                ok = True
+                for target2 in action_metadata[action]['targets']:
+                    nx, ny = target2.x+dx, target2.y+dy
+                    if not within_bounds((nx,ny)):
+                        ok = False
+                        break
+                if ok:
+                    break
+            print(f"SPELL WIND {hero.x+dx} {hero.y+dy} {score}")
             mana -= 10
             state.opponent_danger += 60
         elif action.type == ActionType.SHIELD:
