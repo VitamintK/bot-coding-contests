@@ -50,11 +50,11 @@ foxholes_2 = [
 ]
 
 base_love = [1,0,0]
-defend_love = [2, 0.8, 0.3]
+defend_love = [2.3, 0.8, 0.3]
 home_love = [1, 1, 1]
 farm_love = [0.2, 0.3, 1]
 extroversion = [0, 0.1, 1]
-wind_love = [0.6, 0.4, 0.1]
+wind_love = [0.6, 0.3, 0.1]
 shield_self_love = [1,0,0]
 
 def distance_from_position(entity, position):
@@ -180,7 +180,7 @@ while True:
             state.should_shield_base = True
         action_scores = defaultdict(float)
         action_metadata = defaultdict(lambda: {'targets': []})
-        action_scores[Action(ActionType.WAIT)] = 0
+        # action_scores[Action(ActionType.WAIT)] = 0
         for opp_hero in opp_heroes:
             # make opponent go away
             # if distance_from_base(opp_hero) < 7000 and distance_fn(opp_hero, hero) < WIND_RANGE and opp_hero.shield_life == 0 and mana > 80:
@@ -189,14 +189,14 @@ while True:
             if state.should_shield_base and distance_from_base(hero) < 5500 and distance_fn(opp_hero, hero) < CONTROL_RANGE and mana > 10 and hero.shield_life == 0:
                 action_scores[Action(ActionType.SHIELD, target_id=hero.id)] = 200 * shield_self_love[i]
             # disrupt enemies with Wind
-            if distance_fn(opp_hero, hero) < WIND_RANGE and opp_hero.shield_life == 0 and mana > 10:
+            if distance_fn(opp_hero, hero) < WIND_RANGE-400 and opp_hero.shield_life == 0 and mana > 10:
                 for monster in monsters:
                     if monster.shield_life>0 and distance_from_opp_base(monster) < 5000 and distance_fn(monster, opp_hero) < WIND_RANGE:
                         close_bonus = 10 if distance_from_opp_base(monster) < 2500 else 0
                         action_scores[Action(ActionType.WIND, target_id=opp_hero.id, x=base_x, y=base_y)] += 70 + close_bonus
             # disrupt enemy defenses wih Control
-            if distance_fn(opp_hero, hero) < CONTROL_RANGE and opp_hero.shield_life == 0 and opp_hero.is_controlled==0 and mana > 10:
-                attack_bonus = 10 if state.opponent_danger>90 else -50
+            if distance_fn(opp_hero, hero) < CONTROL_RANGE and opp_hero.shield_life == 0 and mana > 10 and distance_from_opp_base(opp_hero) < 7500:
+                attack_bonus = (state.opponent_danger-80) if state.opponent_danger>80 else -50
                 time_bonus = -50 if state.timestep < 90 else 0
                 mana_bonus = min(mana-29, 49)
                 x = opp_hero.x - (other_x - opp_hero.x)
@@ -205,25 +205,37 @@ while True:
                 action_scores[Action(ActionType.CONTROL_AWAY, target_id=opp_hero.id, x=x, y=y)] += bonus + (random.random()-0.8) * 50 + attack_bonus + mana_bonus
         for monster in monsters:
             # last-ditch defense of our base
-            if distance_from_base(monster) < 1500 and distance_fn(monster, hero) < 1280 and monster.shield_life == 0 and mana >= 10:
-                action_scores[Action(ActionType.WIND_TO_OPP)] += 600
+            if distance_from_base(monster) < 1400 and distance_fn(monster, hero) < WIND_RANGE and monster.shield_life == 0 and mana >= 10:
+                if distance_fn(monster, hero) < 800 and monster.health <= 2:
+                    pass
+                else:
+                    action_scores[Action(ActionType.WIND_TO_OPP)] += 600
+            # use control for last-ditch defense if wind is out of range
+            if SCORE_RADIUS+400 < distance_from_base(monster) < SCORE_RADIUS + 400 + 400 and distance_fn(monster, hero) < CONTROL_RANGE and monster.shield_life == 0 and mana >= 0:
+                action = Action(ActionType.CONTROL_TO_OPP, target_id=monster.id)
+                action_metadata[action]['targets'].append(monster)
+                action_scores[action] += 400
             # preventative winding if opponent is attacking
             if distance_from_base(monster) < BASE_RADIUS and distance_fn(monster, hero) < WIND_RANGE and monster.shield_life==0 and mana >= 10 and state.opponent_in_my_base>0:
-                mana_bonus = min(max(0, mana-40), 20)
-                urgent_bonus = 0
-                # x,y = monster.x+monster.vx, monster.y+monster.vy
-                x,y = monster.x, monster.y
-                for opp_hero in opp_heroes:
-                    if distance_from_position(opp_hero, (x,y)) <= WIND_RANGE and (distance_fn(hero, opp_hero) > WIND_RANGE or math.dist((x,y), (base_x, base_y))<=WIND_EFFECT+SCORE_RADIUS):
-                        urgent_bonus += 110
-                action_scores[Action(ActionType.WIND_TO_OPP)] += 95 + mana_bonus + urgent_bonus
+                if distance_fn(monster, hero) < 800 and monster.health <= 2:
+                    pass
+                else:
+                    mana_bonus = min(max(0, mana-40), 20)
+                    urgent_bonus = 0
+                    # x,y = monster.x+monster.vx, monster.y+monster.vy
+                    x,y = monster.x, monster.y
+                    for opp_hero in opp_heroes:
+                        if distance_from_position(opp_hero, (x,y)) <= WIND_RANGE and (distance_fn(hero, opp_hero) > WIND_RANGE or math.dist((x,y), (base_x, base_y))<=WIND_EFFECT+SCORE_RADIUS):
+                            urgent_bonus += 150
+                    action_scores[Action(ActionType.WIND_TO_OPP)] += (95 + mana_bonus + urgent_bonus) * 1.66 * wind_love[i]
             # push out of base to get more wild mana
             if distance_fn(monster, hero) < WIND_RANGE and 2000 < distance_from_base(monster) < BASE_RADIUS and monster.shield_life == 0 and mana >= 10:
                 action_scores[Action(ActionType.WIND_TO_OPP, target_id=monster)] += wind_love[i] * 40 + min(mana, 25)
             d = distance_from_base(monster)
             normalized_base_distance = 1 - math.sqrt(min(d, 10000)/10000)
             normalized_hero_distance = math.sqrt(min(distance_fn(hero, monster), 10000)/10000)
-            x,y = target_towards((hero.x, hero.y), project_position(monster, 400), 799)
+            # x,y = target_towards((hero.x, hero.y), project_position(monster, 400), 799)
+            x,y = target_towards((hero.x, hero.y), (monster.x, monster.y), 800)
             # Kill monster if it's a threat
             if monster.threat_for==1:
                 value = 150 * normalized_base_distance * defend_love[i] - 25 * normalized_hero_distance
@@ -231,9 +243,11 @@ while True:
                     value -= 18
                 action_scores[Action(ActionType.MOVE, target_id=monster.id, x=x, y=y)] += value
             # Control faraway monsters to attack
-            if state.timestep > 65 and distance_from_base(monster)>4900 and  mana > 20 and distance_fn(monster, hero) < CONTROL_RANGE and monster.shield_life==0 and monster.threat_for!=2 and len(actions_for_entity[monster.id])==0:
-                health_bonus = monster.health*2 - 40
-                action_scores[Action(ActionType.CONTROL_TO_OPP, target_id=monster.id)] = 40 + min(mana-40, 35) + health_bonus
+            if state.timestep > 70 and distance_from_base(monster)>4900 and  mana > 20 and distance_fn(monster, hero) < CONTROL_RANGE and monster.shield_life==0 and monster.threat_for!=2 and len(actions_for_entity[monster.id])==0:
+                health_bonus = monster.health*2 - 40 if monster.health >= 6 else -100
+                action = Action(ActionType.CONTROL_TO_OPP, target_id=monster.id)
+                action_metadata[action]['targets'].append(monster)
+                action_scores[action] = 40 + min(mana-40, 35) + health_bonus
             # Wind monsters to attack
             if monster.shield_life==0 and BASE_RADIUS < distance_from_opp_base(monster) < BASE_RADIUS+2200 and distance_fn(hero, monster) < WIND_RANGE and mana > 20:
                 time_penalty = 100 if state.timestep < 80 else -20
@@ -272,9 +286,9 @@ while True:
             if monster.threat_for==2 and distance_from_opp_base(monster) < 5800 and distance_fn(hero, monster) < SHIELD_RANGE and mana >= 20 and monster.shield_life==0:
                 time_penalty = 60 if state.timestep < 80 else 0
                 hp_bonus = monster.health * 4.5
-                # distance_bonus = 50 if 
+                distance_bonus = 20 if distance_from_opp_base(monster) < 3000 else 0
                 shield_penalty = monster.shield_life * 25
-                action_scores[Action(ActionType.SHIELD, target_id=monster.id)] += hp_bonus - shield_penalty - time_penalty + 10
+                action_scores[Action(ActionType.SHIELD, target_id=monster.id)] += hp_bonus - shield_penalty - time_penalty + distance_bonus + 10
 
         # Go fuck with opponent
         if state.timestep > 35:
@@ -285,7 +299,7 @@ while True:
             if mana < 20:
                 home_love[2] = 0.5
             else:
-                home_love[2] = 6
+                home_love[2] = 5
         # Go home
         for home in homes[i]:
             x,y = target_towards((hero.x, hero.y), home, 799)
@@ -300,7 +314,7 @@ while True:
                     continue
                 action = Action(ActionType.MOVE, x=hero.x+dx, y=hero.y+dy)
                 if action not in action_scores:
-                    action_scores[action] = 1
+                    action_scores[action] = 8 * home_love[i] * 0.7
 
         for action in action_scores:
             if action.type != ActionType.MOVE:
@@ -309,10 +323,11 @@ while True:
             delta = distance_from_position(hero, foxhole_1_mid) - math.dist((action.x, action.y), foxhole_1_mid)
             delta = max(delta, -2000)
             farming_bonus = extroversion[i] * delta/2000 * 50
-            far_from_base_penalty = 100*base_love[i] if math.dist((base_x, base_y), (action.x, action.y)) > state.get_safe_distance() else 0
+            far_from_base_penalty = base_love[i]*math.dist((action.x,action.y),(base_x,base_y))*(300/5000) if math.dist((base_x, base_y), (action.x, action.y)) > state.get_safe_distance() else 0
             far_from_home_penalty = 300
             for home in homes[i]:
                 far_from_home_penalty = min(far_from_home_penalty, home_love[i] * math.dist((action.x,action.y), home)/5000 * 10)
+            action_scores[action] -= far_from_base_penalty
             for monster in monsters:
                 # do get close to monster so I can spell it
                 monster_distance = distance_from_position(monster, (action.x, action.y))
@@ -329,17 +344,21 @@ while True:
                     if d > BASE_RADIUS:
                         attack_penalty = max(1-distance_from_opp_base(monster)/5000, 0.05)*400 if monster.threat_for==2 else 0
                         on_it_penalty = 28 if len(actions_for_entity[monster.id]) > 0 else 0
-                        action_scores[action] += 90 * farm_love[i] - normalized_hero_distance * 25 + farming_bonus - attack_penalty - far_from_base_penalty - on_it_penalty - far_from_home_penalty
+                        action_scores[action] += 90 * farm_love[i] - normalized_hero_distance * 25 + farming_bonus - attack_penalty - on_it_penalty - far_from_home_penalty
                     # do harm monster to defend base
                     if monster.threat_for==1:
                         # calculate defense bonus
                         # d = math.dist((base_x, base_y), (action.x, action.y))
-                        d = distance_from_base(monster)
-                        normalized_base_distance = 1 - math.sqrt(min(d, 10000)/10000)
-                        normalized_hero_distance = math.sqrt(min(distance_fn(hero, monster), 10000)/10000)
-                        defense_value = 150 * normalized_base_distance * defend_love[i] - 25 * normalized_hero_distance
-                        action_scores[action] = max(action_scores[action], defense_value)
-                        action_scores[action] += 10
+                        if len(actions_for_entity[monster.id]) > 0 and monster.health <= 2:
+                            pass
+                        else:
+                            d = distance_from_base(monster)
+                            normalized_base_distance = 1 - math.sqrt(min(d, 10000)/10000)
+                            normalized_hero_distance = math.sqrt(min(distance_fn(hero, monster), 10000)/10000)
+                            defense_value = 150 * normalized_base_distance * defend_love[i] - 25 * normalized_hero_distance
+                            action_scores[action] = max(action_scores[action], defense_value)
+                            action_scores[action] += 10
+                            action_metadata[action]['targets'].append(monster)
         
         print('top 4', file=sys.stderr, flush=True)
         for action, score in list(sorted(action_scores.items(), key=lambda x: x[1], reverse=True))[:4]:
@@ -375,8 +394,11 @@ while True:
             print(f"SPELL CONTROL {action.target_id} {action.x} {action.y} {score}")
             mana -= 10
         elif action.type == ActionType.CONTROL_TO_OPP:
-            print(f"SPELL CONTROL {action.target_id} {opp_base_corners[state.which_opp_corner][0]} {opp_base_corners[state.which_opp_corner][1]} {score}")
-            state.toggle_which_opponent_corner()
+            if distance_from_opp_base(action_metadata[action]['targets'][0]) < 6000:
+                 print(f"SPELL CONTROL {action.target_id} {other_x} {other_y} {score}")
+            else:
+                print(f"SPELL CONTROL {action.target_id} {opp_base_corners[state.which_opp_corner][0]} {opp_base_corners[state.which_opp_corner][1]} {score}")
+                state.toggle_which_opponent_corner()
             mana -= 10
         elif action.type==ActionType.WIND:
             print(f"SPELL WIND {action.x} {action.y} {score}")
